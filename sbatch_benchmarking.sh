@@ -145,6 +145,7 @@ sbatch <<EOF
 #SBATCH --dependency=singleton
 #SBATCH --output=${WORKSPACE}/slurm.log
 #SBATCH --exclusive
+#SBATCH --qos=boost_qos_dbg
 
 srun \
     --mpi=pmix -l \
@@ -153,5 +154,34 @@ srun \
     --container-mounts=${CONTAINER_MOUNTS} \
     --container-workdir=${MEGATRON_PATH} \
     bash -c \\\${TRAINING_CMD} 2>&1 | tee ${SLURM_LOGS}/\${SLURM_JOB_ID}.log
+
+LAUNCHER="singularity exec \
+    --nv \
+    --bind {$CONTAINER_MOUNTS}  \
+#    --env HF_HUB_OFFLINE=$HF_HUB_OFFLINE \
+#    --env HF_HOME=$HF_HOME \
+#    --env WANDB_API_KEY=$WANDB_API_KEY \
+#    --env WANDB_MODE=$WANDB_MODE \
+    ${CONTAINER_IMAGE} \
+    python -u -m torch.distributed.run \
+      --nproc-per-node $SLURM_GPUS_PER_NODE \
+      --nnodes {$NNODES}  \
+      --rdzv_endpoint $MASTER_ADDR:$MASTER_PORT \
+      --rdzv_backend static \
+      --max_restarts 0 \
+      --tee 3 \
+    "
+
+srun \
+    --wait=60 \
+    --cpus-per-task=$SLURM_CPUS_PER_TASK \
+    --threads-per-core=1 \
+    --kill-on-bad-exit=1 \
+    --jobid $SLURM_JOB_ID \
+    bash -c "$LAUNCHER --node_rank \$SLURM_PROCID --role \$SLURMD_NODENAME: ${TRAINING_CMD} 2>&1 | tee ${SLURM_LOGS}/\${SLURM_JOB_ID}.log"
+
+echo "END $SLURM_JOBID: $(date)"
+
+
 EOF
 set -e
