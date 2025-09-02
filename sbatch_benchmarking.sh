@@ -133,7 +133,7 @@ TIMESTAMP=$(date +'%y%m%d_%H%M%S')
 
 # Submit SLURM job
 set +e
-sbatch <<EOF
+cat > sbatch.txt <<EOF
 #!/bin/bash
 
 #SBATCH --nodes=${NNODES}
@@ -153,7 +153,7 @@ srun \
     --container-image=${CONTAINER_IMAGE} \
     --container-mounts=${CONTAINER_MOUNTS} \
     --container-workdir=${MEGATRON_PATH} \
-    bash -c \\\${TRAINING_CMD} 2>&1 | tee ${SLURM_LOGS}/\${SLURM_JOB_ID}.log
+    bash -c \\\${TRAINING_CMD} 2>&1 | tee ${SLURM_LOGS}/\\${SLURM_JOB_ID}.log
 
 LAUNCHER="singularity exec \
     --nv \
@@ -178,10 +178,11 @@ srun \
     --threads-per-core=1 \
     --kill-on-bad-exit=1 \
     --jobid $SLURM_JOB_ID \
-    bash -c "$LAUNCHER --node_rank \$SLURM_PROCID --role \$SLURMD_NODENAME: ${TRAINING_CMD} 2>&1 | tee ${SLURM_LOGS}/\${SLURM_JOB_ID}.log"
+    bash -c "$LAUNCHER --node_rank \$SLURM_PROCID --role \$SLURMD_NODENAME: ${TRAINING_CMD} 2>&1 | tee ${SLURM_LOGS}/\\${SLURM_JOB_ID}.log"
 
 echo "END $SLURM_JOBID: $(date)"
 
 
 EOF
+sbatch sbatch.txt
 set -e
