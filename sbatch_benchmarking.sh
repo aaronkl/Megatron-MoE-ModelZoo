@@ -118,8 +118,12 @@ else
     PROFILE_CMD=""
 fi
 
+TRAINING_PARAMS="${TRAINING_PARAMS} --vocab-file ${VOCAB_FILE} --merge-file ${MERGE_FILE}"
+
+
 # Export training command
-export TRAINING_CMD="${PROFILE_CMD} python ${TRAINING_SCRIPT_PATH} ${TRAINING_PARAMS}"
+#export TRAINING_CMD="${PROFILE_CMD} python ${TRAINING_SCRIPT_PATH} ${TRAINING_PARAMS}"
+export TRAINING_CMD="${TRAINING_SCRIPT_PATH} ${TRAINING_PARAMS}"
 
 # SLURM settings
 SLURM_LOGS="${OUTPUT_PATH}/slurm_logs"
@@ -131,6 +135,8 @@ mkdir -p ${SLURM_LOGS} || {
 # Generate timestamp for job name
 TIMESTAMP=$(date +'%y%m%d_%H%M%S')
 
+rm -rf sbatch.txt
+
 # Submit SLURM job
 set +e
 cat > sbatch.txt <<EOF
@@ -139,50 +145,53 @@ cat > sbatch.txt <<EOF
 #SBATCH --nodes=${NNODES}
 #SBATCH --account=${ACCOUNT}
 #SBATCH --partition=${PARTITION}
-#SBATCH --ntasks-per-node=8
+#SBATCH --cpus-per-task=32
+#SBATCH --threads-per-core=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gpus-per-node=4
+#SBATCH --gres=gpu:4
 #SBATCH --time=${RUN_TIME}
-#SBATCH --job-name=${ACCOUNT}-moe-${RUN_NAME}-${TIMESTAMP}
+#SBATCH --job-name=${RUN_NAME}-${TIMESTAMP}
 #SBATCH --dependency=singleton
 #SBATCH --output=${WORKSPACE}/slurm.log
 #SBATCH --exclusive
 #SBATCH --qos=boost_qos_dbg
 
-srun \
-    --mpi=pmix -l \
-    --ntasks-per-node=8 \
-    --container-image=${CONTAINER_IMAGE} \
-    --container-mounts=${CONTAINER_MOUNTS} \
-    --container-workdir=${MEGATRON_PATH} \
-    bash -c \\\${TRAINING_CMD} 2>&1 | tee ${SLURM_LOGS}/\\${SLURM_JOB_ID}.log
+export WANDB_MODE="offline"
+
+# DISTRIBUTED SETUP
+MASTER_ADDR=\$(scontrol show hostnames \${SLURM_JOB_NODELIST} | head -n 1)  # master node hostname
+MASTER_ADDR="\$(nslookup "\${MASTER_ADDR}" | grep -oP '(?<=Address: ).*')"  # IP numeric address
+export MASTER_ADDR="\${MASTER_ADDR}"
+export MASTER_PORT=12345
+echo "MASTER_ADDR:MASTER_PORT set to: \${MASTER_ADDR}:\${MASTER_PORT}"
 
 LAUNCHER="singularity exec \
     --nv \
-    --bind {$CONTAINER_MOUNTS}  \
-#    --env HF_HUB_OFFLINE=$HF_HUB_OFFLINE \
-#    --env HF_HOME=$HF_HOME \
-#    --env WANDB_API_KEY=$WANDB_API_KEY \
-#    --env WANDB_MODE=$WANDB_MODE \
+    --bind ${CONTAINER_MOUNTS}  \
+    --env HF_HUB_OFFLINE=$HF_HUB_OFFLINE \
+    --env HF_HOME=$HF_HOME \
     ${CONTAINER_IMAGE} \
-    python -u -m torch.distributed.run \
-      --nproc-per-node $SLURM_GPUS_PER_NODE \
-      --nnodes {$NNODES}  \
-      --rdzv_endpoint $MASTER_ADDR:$MASTER_PORT \
-      --rdzv_backend static \
-      --max_restarts 0 \
-      --tee 3 \
-    "
+    torchrun \
+      --nproc-per-node \${SLURM_GPUS_PER_NODE} \
+      --nnodes ${NNODES}  \
+      --rdzv_endpoint \$MASTER_ADDR:\$MASTER_PORT \
+      --rdzv_backend c10d \
+      --node_rank \\\$SLURM_NODEID \
+      --role \\\$SLURMD_NODENAME: \
+"    
+
+echo \$LAUNCHER
 
 srun \
     --wait=60 \
-    --cpus-per-task=$SLURM_CPUS_PER_TASK \
+    --cpus-per-task=\${SLURM_CPUS_PER_TASK} \
     --threads-per-core=1 \
     --kill-on-bad-exit=1 \
-    --jobid $SLURM_JOB_ID \
-    bash -c "$LAUNCHER --node_rank \$SLURM_PROCID --role \$SLURMD_NODENAME: ${TRAINING_CMD} 2>&1 | tee ${SLURM_LOGS}/\\${SLURM_JOB_ID}.log"
-
-echo "END $SLURM_JOBID: $(date)"
-
-
+    --jobid \${SLURM_JOB_ID} \
+    bash -c "\$LAUNCHER  ${TRAINING_CMD} 2>&1 | tee ${SLURM_LOGS}/\${SLURM_JOB_ID}.log"
 EOF
 sbatch sbatch.txt
 set -e
+
+
