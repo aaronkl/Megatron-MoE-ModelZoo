@@ -34,7 +34,7 @@ MODEL_ARGS:
 
   # Data args
   --seq-length: ${SEQ_LEN}
-  --data-cache-path: ${WORKSPACE}/data_cache
+  --data-cache-path: ${MEGATRON_CACHE_FOLDER}/data_cache
   --tokenizer-type: HuggingFaceTokenizer
   --tokenizer-model: deepseek-ai/DeepSeek-V2
   --data-path: ${DATA_PATH}
@@ -79,7 +79,7 @@ MODEL_ARGS:
 
   # Add MoE args
   --num-experts: 64
-  --moe-layer-freq: ([0]+[1]*26)
+  --moe-layer-freq: "'([0]+[1]*26)'"
   --moe-ffn-hidden-size: 1408
   --moe-shared-expert-intermediate-size: 2816
   --moe-router-load-balancing-type: seq_aux_loss
@@ -90,7 +90,8 @@ MODEL_ARGS:
   --moe-aux-loss-coeff: 1e-3
   --moe-router-topk-scaling-factor: 1.0
   --moe-router-dtype: fp32
-  --moe-permute-fusion: true
+  # --moe-permute-fusion: true  # currently does not work with our container
+  --moe-permute-fusion: false
 
   # Add MLA args
   --kv-lora-rank: 512
