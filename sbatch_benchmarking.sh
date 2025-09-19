@@ -121,6 +121,12 @@ fi
 TRAINING_PARAMS="${TRAINING_PARAMS} --vocab-file ${VOCAB_FILE} --merge-file ${MERGE_FILE}"
 
 
+export NCCL_IB_TIMEOUT=120
+export TRITON_LIBCUDA_PATH=/usr/local/cuda/lib64/stubs
+export CUDA_DEVICE_MAX_CONNECTIONS=1
+export OMP_NUM_THREADS=1
+
+
 # Export training command
 #export TRAINING_CMD="${PROFILE_CMD} python ${TRAINING_SCRIPT_PATH} ${TRAINING_PARAMS}"
 export TRAINING_CMD="${TRAINING_SCRIPT_PATH} ${TRAINING_PARAMS}"
@@ -146,16 +152,22 @@ cat > sbatch.txt <<EOF
 #SBATCH --account=${ACCOUNT}
 #SBATCH --partition=${PARTITION}
 #SBATCH --cpus-per-task=32
-#SBATCH --threads-per-core=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=4
 #SBATCH --gres=gpu:4
 #SBATCH --time=${RUN_TIME}
 #SBATCH --job-name=${RUN_NAME}-${TIMESTAMP}
-#SBATCH --dependency=singleton
 #SBATCH --output=${WORKSPACE}/slurm.log
 #SBATCH --exclusive
-#SBATCH --qos=boost_qos_dbg
+#SBATCH --qos=${QOS}
+#SBATCH --exclude=lrdn[1711-3456]
+
+module load cuda/12.1
+
+
+export TORCHDYNAMO_DISABLE=1
+export TORCH_COMPILE_DISABLE=1
+
 
 export WANDB_MODE="offline"
 
@@ -191,7 +203,7 @@ srun \
     --jobid \${SLURM_JOB_ID} \
     bash -c "\$LAUNCHER  ${TRAINING_CMD} 2>&1 | tee ${SLURM_LOGS}/\${SLURM_JOB_ID}.log"
 EOF
-sbatch sbatch.txt
+sbatch sbatch.txt 
 set -e
 
 
