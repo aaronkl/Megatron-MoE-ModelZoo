@@ -159,11 +159,7 @@ cat > sbatch.txt <<EOF
 #SBATCH --job-name=${RUN_NAME}-${TIMESTAMP}
 #SBATCH --output=${WORKSPACE}/slurm.log
 #SBATCH --exclusive
-#SBATCH --qos=${QOS}
-#SBATCH --exclude=lrdn[1711-3456]
-
-module load cuda/12.1
-
+#SBATCH --exclude=jwb[0897,0899-0901,0903-0904]
 
 export TORCHDYNAMO_DISABLE=1
 export TORCH_COMPILE_DISABLE=1
@@ -177,6 +173,14 @@ MASTER_ADDR="\$(nslookup "\${MASTER_ADDR}" | grep -oP '(?<=Address: ).*')"  # IP
 export MASTER_ADDR="\${MASTER_ADDR}"
 export MASTER_PORT=12345
 echo "MASTER_ADDR:MASTER_PORT set to: \${MASTER_ADDR}:\${MASTER_PORT}"
+
+# necessary on JUWELS to handle GLOO CPU communication related errors; on JEDI, this is not required
+export GLOO_SOCKET_IFNAME=ib0
+
+# NCCL settings to improve distributed training stability (handling flipping links, irresponsive nodes, etc)
+# waiting for 120s in case nodes become irresponsive giving a chance to recover
+export NCCL_IB_TIMEOUT=120
+
 
 LAUNCHER="singularity exec \
     --nv \
